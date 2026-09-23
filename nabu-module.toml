@@ -1,0 +1,14 @@
+schema = 1
+
+[module]
+name        = "nabu-display"
+description = "SM8150 DPU/DSI display support, NT36523 panel and DRM notifier"
+requires    = []
+
+[provides]
+overlay = "kernel-overlay"
+config  = ["config/nabu-display.config"]
+
+# Display support is built into the kernel (CONFIG_DRM_MSM=y and
+# CONFIG_DRM_PANEL_NOVATEK_NT36523=y), so this module contributes no .ko of its
+# own; it only carries the source overlay and the config fragment.
