@@ -6,8 +6,9 @@ description = "SM8150 DPU/DSI display support, NT36523 panel and DRM notifier"
 requires    = []
 
 [provides]
-overlay = "kernel-overlay"
-config  = ["config/nabu-display.config"]
+overlay      = "kernel-overlay"
+config       = ["config/nabu-display.config"]
+modules_load = ["config/nabu-display.conf"]
 
 # The DPU/DSI core is built into the kernel (CONFIG_DRM_MSM=y), but the NT36523
 # panel and the KTZ8866 backlight are modules on purpose (see the config
@@ -27,3 +28,4 @@ kernel_targets = [
 [install]
 "panel-novatek-nt36523.ko" = "/lib/modules/@release@/kernel/drivers/gpu/drm/panel/panel-novatek-nt36523.ko"
 "ktz8866.ko"               = "/lib/modules/@release@/kernel/drivers/video/backlight/ktz8866.ko"
+"modules_load/nabu-display.conf" = "/etc/modules-load.d/nabu-display.conf"
