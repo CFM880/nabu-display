@@ -4,10 +4,10 @@
  */
 
 #include "drm/drm_bridge_connector.h"
+#include "drm/drm_notifier.h"
 
 #include "msm_kms.h"
 #include "dsi.h"
-#include "drm/drm_notifier.h"
 
 #define DSI_CLOCK_MASTER	DSI_0
 #define DSI_CLOCK_SLAVE		DSI_1
@@ -259,7 +259,7 @@ phy_en_fail:
 	return ret;
 }
 
-static void dsi_mgr_bridge_power_off(struct drm_bridge *bridge)
+static void __maybe_unused dsi_mgr_bridge_power_off(struct drm_bridge *bridge)
 {
 	int id = dsi_mgr_bridge_get_id(bridge);
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
@@ -276,15 +276,36 @@ static void dsi_mgr_bridge_power_off(struct drm_bridge *bridge)
 	dsi_mgr_phy_disable(id);
 }
 
-static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
+static void dsi_mgr_bridge_enable(struct drm_bridge *bridge)
 {
 	int id = dsi_mgr_bridge_get_id(bridge);
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
 	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
 	struct mipi_dsi_host *host = msm_dsi->host;
 	bool is_bonded_dsi = IS_BONDED_DSI();
+	enum drm_notifier_data notifier_data = MI_DRM_BLANK_UNBLANK;
 	int ret;
-	enum drm_notifier_data notifier_data;
+	if (!(is_bonded_dsi && !IS_MASTER_DSI_LINK(id))) {
+		ret = msm_dsi_host_enable(host);
+		if (ret) pr_err("host %d enable failed %d\n", id, ret);
+		if (is_bonded_dsi && msm_dsi1)
+			msm_dsi_host_enable(msm_dsi1->host);
+	}
+
+	/*
+	 * The panel bridge is enabled before this callback. Notify the touch
+	 * controller only after the complete display pipeline is ready; resuming
+	 * touch from pre_enable() races DSI host/panel bring-up on Nabu.
+	 */
+	mi_drm_notifier_call_chain(MI_DRM_EVENT_BLANK, &notifier_data);
+}
+
+static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
+{
+	int id = dsi_mgr_bridge_get_id(bridge);
+	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
+	bool is_bonded_dsi = IS_BONDED_DSI();
+	int ret;
 
 	DBG("id=%d", id);
 
@@ -297,30 +318,6 @@ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge)
 		dev_err(&msm_dsi->pdev->dev, "Power on failed: %d\n", ret);
 		return;
 	}
-
-	notifier_data = MI_DRM_BLANK_UNBLANK;
-	mi_drm_notifier_call_chain(MI_DRM_EVENT_BLANK, &notifier_data);
-
-	ret = msm_dsi_host_enable(host);
-	if (ret) {
-		pr_err("%s: enable host %d failed, %d\n", __func__, id, ret);
-		goto host_en_fail;
-	}
-
-	if (is_bonded_dsi && msm_dsi1) {
-		ret = msm_dsi_host_enable(msm_dsi1->host);
-		if (ret) {
-			pr_err("%s: enable host1 failed, %d\n", __func__, ret);
-			goto host1_en_fail;
-		}
-	}
-
-	return;
-
-host1_en_fail:
-	msm_dsi_host_disable(host);
-host_en_fail:
-	dsi_mgr_bridge_power_off(bridge);
 }
 
 void msm_dsi_manager_tpg_enable(void)
@@ -343,8 +340,8 @@ static void dsi_mgr_bridge_post_disable(struct drm_bridge *bridge)
 	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
 	struct mipi_dsi_host *host = msm_dsi->host;
 	bool is_bonded_dsi = IS_BONDED_DSI();
-	int ret;
 	enum drm_notifier_data notifier_data;
+	int ret;
 
 	DBG("id=%d", id);
 
@@ -406,9 +403,74 @@ static void dsi_mgr_bridge_mode_set(struct drm_bridge *bridge,
 	if (is_bonded_dsi && !IS_MASTER_DSI_LINK(id))
 		return;
 
+	{
+		int ret;
+
+		ret = msm_dsi_host_set_display_mode_seamless(host,
+				adjusted_mode, is_bonded_dsi);
+		if (!ret && is_bonded_dsi && other_dsi)
+			ret = msm_dsi_host_set_display_mode_seamless(
+				other_dsi->host, adjusted_mode, is_bonded_dsi);
+
+		if (!ret) {
+			msm_dsi->seamless_dfps_pending = true;
+			return;
+		}
+
+		if (ret != -EOPNOTSUPP && ret != -EPIPE)
+			dev_err(&msm_dsi->pdev->dev,
+				"seamless DFPS timing update failed: %d\n", ret);
+	}
+
 	msm_dsi_host_set_display_mode(host, adjusted_mode);
 	if (is_bonded_dsi && other_dsi)
 		msm_dsi_host_set_display_mode(other_dsi->host, adjusted_mode);
+}
+
+int msm_dsi_manager_stage_seamless_dfps(void)
+{
+	struct msm_dsi *master =
+		dsi_mgr_get_dsi(msm_dsim_glb.master_dsi_link_id);
+	struct msm_dsi *slave = dsi_mgr_get_other_dsi(
+		msm_dsim_glb.master_dsi_link_id);
+	bool is_bonded_dsi = IS_BONDED_DSI();
+	int ret;
+
+	if (!master || !master->seamless_dfps_pending)
+		return 0;
+
+	/* Validate both links before changing either shadow database. */
+	if (!msm_dsi_host_seamless_ready(master->host) ||
+	    (is_bonded_dsi && slave &&
+	     !msm_dsi_host_seamless_ready(slave->host)))
+		return -EPIPE;
+
+	ret = msm_dsi_host_stage_seamless(master->host, is_bonded_dsi);
+	if (ret)
+		return ret;
+
+	if (is_bonded_dsi && slave)
+		ret = msm_dsi_host_stage_seamless(slave->host,
+						  is_bonded_dsi);
+
+	return ret;
+}
+
+void msm_dsi_manager_complete_seamless_dfps(void)
+{
+	struct msm_dsi *master =
+		dsi_mgr_get_dsi(msm_dsim_glb.master_dsi_link_id);
+	struct msm_dsi *slave = dsi_mgr_get_other_dsi(
+		msm_dsim_glb.master_dsi_link_id);
+
+	if (!master || !master->seamless_dfps_pending)
+		return;
+
+	msm_dsi_host_complete_seamless(master->host);
+	if (IS_BONDED_DSI() && slave)
+		msm_dsi_host_complete_seamless(slave->host);
+
+	master->seamless_dfps_pending = false;
 }
 
 static enum drm_mode_status dsi_mgr_bridge_mode_valid(struct drm_bridge *bridge,
@@ -443,18 +505,20 @@ static enum drm_mode_status dsi_mgr_bridge_mode_valid(struct drm_bridge *bridge,
 }
 
 static int dsi_mgr_bridge_attach(struct drm_bridge *bridge,
+				 struct drm_encoder *encoder,
 				 enum drm_bridge_attach_flags flags)
 {
 	int id = dsi_mgr_bridge_get_id(bridge);
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
 
-	return drm_bridge_attach(bridge->encoder, msm_dsi->next_bridge,
+	return drm_bridge_attach(encoder, msm_dsi->next_bridge,
 				 bridge, flags);
 }
 
 static const struct drm_bridge_funcs dsi_mgr_bridge_funcs = {
 	.attach = dsi_mgr_bridge_attach,
 	.pre_enable = dsi_mgr_bridge_pre_enable,
+	.enable = dsi_mgr_bridge_enable,
 	.post_disable = dsi_mgr_bridge_post_disable,
 	.mode_set = dsi_mgr_bridge_mode_set,
 	.mode_valid = dsi_mgr_bridge_mode_valid,
@@ -470,15 +534,14 @@ int msm_dsi_manager_connector_init(struct msm_dsi *msm_dsi,
 	struct drm_connector *connector;
 	int ret;
 
-	dsi_bridge = devm_kzalloc(msm_dsi->dev->dev,
-				sizeof(*dsi_bridge), GFP_KERNEL);
-	if (!dsi_bridge)
-		return -ENOMEM;
+	dsi_bridge = devm_drm_bridge_alloc(msm_dsi->dev->dev, struct dsi_bridge, base,
+					   &dsi_mgr_bridge_funcs);
+	if (IS_ERR(dsi_bridge))
+		return PTR_ERR(dsi_bridge);
 
 	dsi_bridge->id = msm_dsi->id;
 
 	bridge = &dsi_bridge->base;
-	bridge->funcs = &dsi_mgr_bridge_funcs;
 
 	ret = devm_drm_bridge_add(msm_dsi->dev->dev, bridge);
 	if (ret)
@@ -494,17 +557,13 @@ int msm_dsi_manager_connector_init(struct msm_dsi *msm_dsi,
 		return PTR_ERR(connector);
 	}
 
-	ret = drm_connector_attach_encoder(connector, encoder);
-	if (ret < 0)
-		return ret;
-
 	return 0;
 }
 
 int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 {
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
-	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
+	struct msm_dsi *msm_dsi0 = dsi_mgr_get_dsi(DSI_0);
 	struct mipi_dsi_host *host = msm_dsi->host;
 	bool is_read = (msg->rx_buf && msg->rx_len);
 	bool need_sync = (IS_SYNC_NEEDED() && !is_read);
@@ -515,14 +574,14 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 
 	/* In bonded master case, panel requires the same commands sent to
 	 * both DSI links. Host issues the command trigger to both links
-	 * when DSI_0 calls the cmd transfer function, no matter it happens
-	 * before or after DSI_1 cmd transfer.
+	 * when DSI_1 calls the cmd transfer function, no matter it happens
+	 * before or after DSI_0 cmd transfer.
 	 */
-	if (need_sync && (id == DSI_1))
+	if (need_sync && (id == DSI_0))
 		return is_read ? msg->rx_len : msg->tx_len;
 
-	if (need_sync && msm_dsi1) {
-		ret = msm_dsi_host_xfer_prepare(msm_dsi1->host, msg);
+	if (need_sync && msm_dsi0) {
+		ret = msm_dsi_host_xfer_prepare(msm_dsi0->host, msg);
 		if (ret) {
 			pr_err("%s: failed to prepare non-trigger host, %d\n",
 				__func__, ret);
@@ -541,8 +600,8 @@ int msm_dsi_manager_cmd_xfer(int id, const struct mipi_dsi_msg *msg)
 	msm_dsi_host_xfer_restore(host, msg);
 
 restore_host0:
-	if (need_sync && msm_dsi1)
-		msm_dsi_host_xfer_restore(msm_dsi1->host, msg);
+	if (need_sync && msm_dsi0)
+		msm_dsi_host_xfer_restore(msm_dsi0->host, msg);
 
 	return ret;
 }
@@ -550,14 +609,14 @@ restore_host0:
 bool msm_dsi_manager_cmd_xfer_trigger(int id, u32 dma_base, u32 len)
 {
 	struct msm_dsi *msm_dsi = dsi_mgr_get_dsi(id);
-	struct msm_dsi *msm_dsi1 = dsi_mgr_get_dsi(DSI_1);
+	struct msm_dsi *msm_dsi0 = dsi_mgr_get_dsi(DSI_0);
 	struct mipi_dsi_host *host = msm_dsi->host;
 
-	if (IS_SYNC_NEEDED() && (id == DSI_1))
+	if (IS_SYNC_NEEDED() && (id == DSI_0))
 		return false;
 
-	if (IS_SYNC_NEEDED() && msm_dsi1)
-		msm_dsi_host_cmd_xfer_commit(msm_dsi1->host, dma_base, len);
+	if (IS_SYNC_NEEDED() && msm_dsi0)
+		msm_dsi_host_cmd_xfer_commit(msm_dsi0->host, dma_base, len);
 
 	msm_dsi_host_cmd_xfer_commit(host, dma_base, len);
 

@@ -10,6 +10,7 @@
 #include "dpu_formats.h"
 #include "dpu_trace.h"
 #include "disp/msm_disp_snapshot.h"
+#include "msm_dsc_helper.h"
 
 #include <drm/display/drm_dsc_helper.h>
 #include <drm/drm_managed.h>
@@ -94,16 +95,20 @@ static void drm_mode_to_intf_timing_params(
 		timing->vsync_polarity = 0;
 	}
 
-	/* for DP/EDP, Shift timings to align it to bottom right */
-	if (phys_enc->hw_intf->cap->type == INTF_DP) {
+	timing->wide_bus_en = dpu_encoder_is_widebus_enabled(phys_enc->parent);
+	timing->compression_en = dpu_encoder_is_dsc_enabled(phys_enc->parent);
+
+	/*
+	 *  For DP/EDP, Shift timings to align it to bottom right.
+	 *  wide_bus_en is set for everything excluding SDM845 &
+	 *  porch changes cause DisplayPort failure and HDMI tearing.
+	 */
+	if (phys_enc->hw_intf->cap->type == INTF_DP && timing->wide_bus_en) {
 		timing->h_back_porch += timing->h_front_porch;
 		timing->h_front_porch = 0;
 		timing->v_back_porch += timing->v_front_porch;
 		timing->v_front_porch = 0;
 	}
-
-	timing->wide_bus_en = dpu_encoder_is_widebus_enabled(phys_enc->parent);
-	timing->compression_en = dpu_encoder_is_dsc_enabled(phys_enc->parent);
 
 	/*
 	 * for DP, divide the horizonal parameters by 2 when
@@ -132,6 +137,7 @@ static void drm_mode_to_intf_timing_params(
 		timing->width = timing->width * drm_dsc_get_bpp_int(dsc) /
 				(dsc->bits_per_component * 3);
 		timing->xres = timing->width;
+		timing->dce_bytes_per_line = msm_dsc_get_bytes_per_line(dsc);
 	}
 }
 
@@ -309,8 +315,7 @@ static void dpu_encoder_phys_vid_setup_timing_engine(
 
 	spin_lock_irqsave(phys_enc->enc_spinlock, lock_flags);
 	phys_enc->hw_intf->ops.setup_timing_gen(phys_enc->hw_intf,
-			&timing_params, fmt,
-			phys_enc->dpu_kms->catalog->mdss_ver);
+			&timing_params, fmt);
 	phys_enc->hw_ctl->ops.setup_intf_cfg(phys_enc->hw_ctl, &intf_cfg);
 
 	/* setup which pp blk will connect to this intf */
@@ -325,6 +330,24 @@ static void dpu_encoder_phys_vid_setup_timing_engine(
 	spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
 
 	programmable_fetch_config(phys_enc, &timing_params);
+}
+
+static bool dpu_encoder_phys_vid_needs_single_flush(
+		struct dpu_encoder_phys *phys_enc);
+
+static void dpu_encoder_phys_vid_seamless_mode_set(
+		struct dpu_encoder_phys *phys_enc)
+{
+	struct dpu_hw_ctl *ctl = phys_enc->hw_ctl;
+
+	dpu_encoder_phys_vid_setup_timing_engine(phys_enc);
+
+	/* The bonded slave shares the master's CTL flush on older hardware. */
+	if (dpu_encoder_phys_vid_needs_single_flush(phys_enc) &&
+	    !dpu_encoder_phys_vid_is_master(phys_enc))
+		return;
+
+	ctl->ops.update_pending_flush_intf(ctl, phys_enc->hw_intf->idx);
 }
 
 static void dpu_encoder_phys_vid_vblank_irq(void *arg)
@@ -374,7 +397,7 @@ static void dpu_encoder_phys_vid_underrun_irq(void *arg)
 static bool dpu_encoder_phys_vid_needs_single_flush(
 		struct dpu_encoder_phys *phys_enc)
 {
-	return !(phys_enc->hw_ctl->caps->features & BIT(DPU_CTL_ACTIVE_CFG)) &&
+	return !(phys_enc->dpu_kms->catalog->mdss_ver->core_major_ver >= 5) &&
 		phys_enc->split_role != ENC_ROLE_SOLO;
 }
 
@@ -458,6 +481,13 @@ static void dpu_encoder_phys_vid_enable(struct dpu_encoder_phys *phys_enc)
 	dpu_encoder_helper_split_config(phys_enc, phys_enc->hw_intf->idx);
 
 	dpu_encoder_helper_phys_setup_cdm(phys_enc, fmt, CDM_CDWN_OUTPUT_HDMI);
+
+	/*
+	 * The bootloader may leave the INTF timing engine running.  If we
+	 * reprogram the timing while it is live, the DSI input FIFO overflows
+	 * and underflows, so make sure it is stopped first.
+	 */
+	phys_enc->hw_intf->ops.enable_timing(phys_enc->hw_intf, 0);
 
 	dpu_encoder_phys_vid_setup_timing_engine(phys_enc);
 
@@ -735,6 +765,7 @@ static void dpu_encoder_phys_vid_init_ops(struct dpu_encoder_phys_ops *ops)
 {
 	ops->is_master = dpu_encoder_phys_vid_is_master;
 	ops->atomic_mode_set = dpu_encoder_phys_vid_atomic_mode_set;
+	ops->seamless_mode_set = dpu_encoder_phys_vid_seamless_mode_set;
 	ops->enable = dpu_encoder_phys_vid_enable;
 	ops->disable = dpu_encoder_phys_vid_disable;
 	ops->control_vblank_irq = dpu_encoder_phys_vid_control_vblank_irq;
@@ -779,6 +810,16 @@ struct dpu_encoder_phys *dpu_encoder_phys_vid_init(struct drm_device *dev,
 
 	dpu_encoder_phys_vid_init_ops(&phys_enc->ops);
 	phys_enc->intf_mode = INTF_MODE_VIDEO;
+
+	/*
+	 * The bootloader may have left this INTF's timing engine running and
+	 * still feeding the DSI.  Stop it as soon as the encoder is created
+	 * (long before the first modeset) so that the panel init commands are
+	 * not blocked by a stale video stream and the DSI input FIFO does not
+	 * overflow/underflow when the timing is reprogrammed.
+	 */
+	if (p->hw_intf && p->hw_intf->ops.enable_timing)
+		p->hw_intf->ops.enable_timing(p->hw_intf, 0);
 
 	DPU_DEBUG_VIDENC(phys_enc, "created intf idx:%d\n", p->hw_intf->idx);
 
