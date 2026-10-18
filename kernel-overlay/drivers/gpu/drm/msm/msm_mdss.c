@@ -510,35 +510,13 @@ static int __maybe_unused mdss_runtime_resume(struct device *dev)
 }
 
 /*
- * Nabu: this used pm_runtime_force_suspend/resume, "the same pair as the DPU",
- * but that makes both mdss and the DPU drive the same display clock tree on
- * every resume.  The clock summary then shows the counters creeping up
- * (disp_cc_mdss_pclk0/1_clk, byte0_intf_clk, qupv3 ahb, bi_tcxo all +1 after
- * one suspend/resume), and the second suspend is the one that hangs -- which
- * also matches the observed "first wake works, second does not".  Go back to
- * the mainline behaviour: only touch the clocks from system sleep when the
- * device is not already runtime-suspended.  The display PLL fix (2.4.11) is
- * independent and stays.
+ * Nabu: system sleep on SM8150.  Use the same pm_runtime_force_* pair as the
+ * DPU so system suspend goes through the normal runtime-PM path; the DSI is
+ * re-initialised on resume by the D-PHY software reset in dsi_host.c.
  */
-static int __maybe_unused mdss_pm_suspend(struct device *dev)
-{
-
-	if (pm_runtime_suspended(dev))
-		return 0;
-
-	return mdss_runtime_suspend(dev);
-}
-
-static int __maybe_unused mdss_pm_resume(struct device *dev)
-{
-	if (pm_runtime_suspended(dev))
-		return 0;
-
-	return mdss_runtime_resume(dev);
-}
-
 static const struct dev_pm_ops mdss_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(mdss_pm_suspend, mdss_pm_resume)
+	SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend,
+				pm_runtime_force_resume)
 	SET_RUNTIME_PM_OPS(mdss_runtime_suspend, mdss_runtime_resume, NULL)
 };
 
