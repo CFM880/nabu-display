@@ -438,6 +438,7 @@ static int mdp5_mdss_parse_clock(struct platform_device *pdev, struct clk_bulk_d
 
 static struct msm_mdss *msm_mdss_init(struct platform_device *pdev, bool is_mdp5)
 {
+	unsigned int i;
 	struct msm_mdss *msm_mdss;
 	int ret;
 	int irq;
@@ -470,8 +471,36 @@ static struct msm_mdss *msm_mdss_init(struct platform_device *pdev, bool is_mdp5
 		dev_err(&pdev->dev, "failed to parse clocks, ret=%d\n", ret);
 		return ERR_PTR(ret);
 	}
+
 	msm_mdss->num_clocks = ret;
 	msm_mdss->is_mdp5 = is_mdp5;
+
+	/*
+	 * Nabu: hold a permanent reference on the MDSS "core" clock, which keeps
+	 * disp_cc_pll0 running for the whole device lifetime.  A TRION PLL can
+	 * only be locked from its programmed state, and nothing re-programs it
+	 * after a power collapse, so once it is disabled it never comes back:
+	 * mdss_runtime_resume() -> msm_mdss_enable() then fails with -110 and
+	 * every subsystem that touches the display afterwards (a commit, a
+	 * dpu_reg_read) hits a powered-down block and takes an external abort.
+	 * See KNOWN-ISSUES 2.4.26.
+	 *
+	 * Keep this *after* num_clocks is set: the first version of this hunk was
+	 * placed above it, so the loop ran zero times and did nothing at all.
+	 */
+	for (i = 0; i < msm_mdss->num_clocks; i++) {
+		if (msm_mdss->clocks[i].id &&
+		    !strcmp(msm_mdss->clocks[i].id, "core")) {
+			ret = clk_prepare_enable(msm_mdss->clocks[i].clk);
+			if (ret)
+				dev_err(&pdev->dev,
+					"failed to keep the core clock on: %d\n",
+					ret);
+			break;
+		}
+	}
+	if (i == msm_mdss->num_clocks)
+		dev_warn(&pdev->dev, "no 'core' clock found, PLL will not be kept on\n");
 
 	msm_mdss->dev = &pdev->dev;
 
