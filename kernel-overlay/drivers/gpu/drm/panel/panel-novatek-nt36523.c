@@ -1012,6 +1012,26 @@ static int nt36523_prepare(struct drm_panel *panel)
 		return ret;
 	}
 
+	/*
+	 * nabu diagnostic: ask the panel for its power mode.  If this read
+	 * succeeds the DSI command path and the panel's own logic are alive and
+	 * only the video stream is missing; if it fails everything the panel
+	 * "received" was a no-op.
+	 */
+	if (pinfo->desc->is_dual_dsi) {
+		u8 val = 0;
+		int r = mipi_dsi_dcs_read(pinfo->dsi[0], MIPI_DCS_GET_POWER_MODE,
+					  &val, 1);
+
+		pr_info("nabu-panel: GET_POWER_MODE dsi0 ret=%d val=0x%02x\n",
+			r, val);
+		val = 0;
+		r = mipi_dsi_dcs_read(pinfo->dsi[1], MIPI_DCS_GET_POWER_MODE,
+				      &val, 1);
+		pr_info("nabu-panel: GET_POWER_MODE dsi1 ret=%d val=0x%02x\n",
+			r, val);
+	}
+
 	return 0;
 }
 
