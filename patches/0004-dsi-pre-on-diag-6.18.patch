@@ -1,0 +1,51 @@
+diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
+index 4e93f8dd39d7..535329ad9290 100644
+--- a/drivers/gpu/drm/msm/dsi/dsi_host.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
+@@ -1222,6 +1222,11 @@ static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
+ 	if (!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO))
+ 		return;
+ 
++	/* 6G v1.2+ holds the trigger until the frame ends; waiting is redundant */
++	if (msm_host->cfg_hnd->major == MSM_DSI_VER_MAJOR_6G &&
++	    msm_host->cfg_hnd->minor >= MSM_DSI_6G_VER_MINOR_V1_2)
++		return;
++
+ 	data = dsi_read(msm_host, REG_DSI_STATUS0);
+ 
+ 	/* if video mode engine is not busy, its because
+@@ -2468,6 +2473,12 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+ 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
+ 	int ret = 0;
+ 
++	/* nabu diagnostic: cold state check (expect ctrl=0x0 after the domain drop) */
++	pr_info("DSI%d pre-on: ctrl=0x%x status0=0x%x fifo=0x%x\n",
++		msm_host->id, dsi_read(msm_host, REG_DSI_CTRL),
++		dsi_read(msm_host, REG_DSI_STATUS0),
++		dsi_read(msm_host, REG_DSI_FIFO_STATUS));
++
+ 	mutex_lock(&msm_host->dev_mutex);
+ 	if (msm_host->power_on) {
+ 		DBG("dsi host already on");
+@@ -2504,9 +2515,21 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+ 	}
+ 
+ 	dsi_timing_setup(msm_host, is_bonded_dsi);
++	/* bootloader may leave video mode enabled; sw_reset keeps those bits */
++	dsi_ctrl_disable(msm_host);
+ 	dsi_sw_reset(msm_host);
+ 	dsi_ctrl_enable(msm_host, phy_shared_timings, phy);
+ 
++	pr_info("DSI%d timing: mode=%ux%u@%u ctl=0x%x cfg0=0x%x act_h=%u act_v=%u total=0x%x hsync=0x%x dsc=%d\n",
++		msm_host->id, msm_host->mode->hdisplay, msm_host->mode->vdisplay,
++		msm_host->mode->clock, dsi_read(msm_host, REG_DSI_CTRL),
++		dsi_read(msm_host, REG_DSI_VID_CFG0),
++		dsi_read(msm_host, REG_DSI_ACTIVE_H),
++		dsi_read(msm_host, REG_DSI_ACTIVE_V),
++		dsi_read(msm_host, REG_DSI_TOTAL),
++		dsi_read(msm_host, REG_DSI_ACTIVE_HSYNC),
++		!!msm_host->dsc);
++
+ 	msm_host->power_on = true;
+ 	mutex_unlock(&msm_host->dev_mutex);
+ 

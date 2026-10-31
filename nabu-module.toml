@@ -15,7 +15,9 @@ overlay = "kernel-overlay"
 # breaks the build when DRM_MSM is built in (our config does).  The -6.14.skip
 # marker keeps 6.14 untouched.
 patches = ["patches/0001-drm-msm-wb2-formats.patch",
-           "patches/0002-drm-notifier.patch"]
+           "patches/0002-drm-notifier.patch",
+           "patches/0003-dpu-cold-start.patch",
+           "patches/0004-dsi-pre-on-diag.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
