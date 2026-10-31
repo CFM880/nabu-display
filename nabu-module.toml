@@ -28,7 +28,8 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            # DPU INTF timing engine running, and reprogramming it while live
            # makes the DSI input FIFO overflow/underflow, so the panel never
            # latches the first frame.
-           "patches/0007-dpu-intf-stale-stop.patch"]
+           "patches/0007-dpu-intf-stale-stop.patch",
+           "patches/0008-dpu-kickoff-diag.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and

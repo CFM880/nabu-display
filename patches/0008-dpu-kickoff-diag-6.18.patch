@@ -1,0 +1,22 @@
+--- a/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
++++ b/drivers/gpu/drm/msm/disp/dpu1/dpu_encoder_phys_vid.c
+@@ -505,6 +505,9 @@
+ 	/* ctl_flush & timing engine enable will be triggered by framework */
+ 	if (phys_enc->enable_state == DPU_ENC_DISABLED)
+ 		phys_enc->enable_state = DPU_ENC_ENABLING;
++
++	pr_info("nabu-vid: enable intf%d state=%d\n",
++		phys_enc->hw_intf->idx - INTF_0, phys_enc->enable_state);
+ }
+ 
+ static int dpu_encoder_phys_vid_wait_for_tx_complete(
+@@ -670,6 +673,9 @@
+ 		phys_enc->hw_intf->ops.enable_timing(phys_enc->hw_intf, 1);
+ 		spin_unlock_irqrestore(phys_enc->enc_spinlock, lock_flags);
+ 		phys_enc->enable_state = DPU_ENC_ENABLED;
++
++		pr_info("nabu-vid: post-kickoff intf%d timing engine ON\n",
++			phys_enc->hw_intf->idx - INTF_0);
+ 	}
+ }
+ 
