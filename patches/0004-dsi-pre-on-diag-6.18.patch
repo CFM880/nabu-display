@@ -1,5 +1,5 @@
 diff --git a/drivers/gpu/drm/msm/dsi/dsi_host.c b/drivers/gpu/drm/msm/dsi/dsi_host.c
-index 4e93f8dd39d7..535329ad9290 100644
+index 4e93f8dd39d7..126915bbaf45 100644
 --- a/drivers/gpu/drm/msm/dsi/dsi_host.c
 +++ b/drivers/gpu/drm/msm/dsi/dsi_host.c
 @@ -1222,6 +1222,11 @@ static void dsi_wait4video_eng_busy(struct msm_dsi_host *msm_host)
@@ -14,7 +14,21 @@ index 4e93f8dd39d7..535329ad9290 100644
  	data = dsi_read(msm_host, REG_DSI_STATUS0);
  
  	/* if video mode engine is not busy, its because
-@@ -2468,6 +2473,12 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+@@ -2426,6 +2431,13 @@ int msm_dsi_host_enable(struct mipi_dsi_host *host)
+ 	 * }
+ 	 */
+ 	msm_host->enabled = true;
++
++	/* nabu diagnostic: is the video engine actually running? */
++	msleep(50);
++	pr_info("DSI%d post-enable: ctrl=0x%x status0=0x%x fifo=0x%x\n",
++		msm_host->id, dsi_read(msm_host, REG_DSI_CTRL),
++		dsi_read(msm_host, REG_DSI_STATUS0),
++		dsi_read(msm_host, REG_DSI_FIFO_STATUS));
+ 	return 0;
+ }
+ 
+@@ -2468,6 +2480,12 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
  	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
  	int ret = 0;
  
@@ -27,7 +41,7 @@ index 4e93f8dd39d7..535329ad9290 100644
  	mutex_lock(&msm_host->dev_mutex);
  	if (msm_host->power_on) {
  		DBG("dsi host already on");
-@@ -2504,9 +2515,21 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
+@@ -2504,9 +2522,21 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
  	}
  
  	dsi_timing_setup(msm_host, is_bonded_dsi);
