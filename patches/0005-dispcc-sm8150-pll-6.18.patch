@@ -1,0 +1,39 @@
+diff --git a/drivers/clk/qcom/dispcc-sm8250.c b/drivers/clk/qcom/dispcc-sm8250.c
+index e59cdadd5647..45ba193f160a 100644
+--- a/drivers/clk/qcom/dispcc-sm8250.c
++++ b/drivers/clk/qcom/dispcc-sm8250.c
+@@ -50,12 +50,31 @@ static const struct pll_vco lucid_5lpe_vco[] = {
+ static struct alpha_pll_config disp_cc_pll0_config = {
+ 	.l = 0x47,
+ 	.alpha = 0xE000,
++	/*
++	 * nabu: SM8150 values, taken from the vendor's dispcc-sm8150.c.  The
++	 * sm8250 values that used to be here do not program the TRION PLL
++	 * correctly for sm8150.  The bootloader leaves the PLL running, so the
++	 * panel comes up fine, but as soon as Linux disables the PLL it can
++	 * never be re-enabled -- PLL_ACTIVE_FLAG never asserts and
++	 * wait_for_pll() times out:
++	 *
++	 *   disp_cc_pll0 failed to enable!
++	 *   WARNING: at clk-alpha-pll.c wait_for_pll
++	 *
++	 * that mangles the display clock tree (disp_cc_mdss_ahb_clk "already
++	 * disabled"/"already unprepared", msm_dsi_phy runtime PM underflow) and
++	 * from then on every system suspend wedges, so no wakeup source can
++	 * work.  See KNOWN-ISSUES 2.4.11.  (Same fix as the 6.14 overlay.)
++	 */
+ 	.config_ctl_val = 0x20485699,
+-	.config_ctl_hi_val = 0x00002261,
+-	.config_ctl_hi1_val = 0x329A699C,
++	.config_ctl_hi_val = 0x00002267,
++	.config_ctl_hi1_val = 0x00000024,
++	.test_ctl_val = 0x00000000,
++	.test_ctl_hi_val = 0x00000002,
++	.test_ctl_hi1_val = 0x00000000,
+ 	.user_ctl_val = 0x00000000,
+ 	.user_ctl_hi_val = 0x00000805,
+-	.user_ctl_hi1_val = 0x00000000,
++	.user_ctl_hi1_val = 0x000000D0,
+ };
+ 
+ static struct clk_init_data disp_cc_pll0_init = {
