@@ -23,7 +23,12 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            # setup returns early and SYSTEM_MUXES (the PLL output routing) is
            # never written.  Re-apply it; 7.2.7 carries the same fix.
            "patches/0005-dispcc-sm8150-pll.patch",
-           "patches/0006-dsi-phy-bonded-pll.patch"]
+           "patches/0006-dsi-phy-bonded-pll.patch",
+           # 7.2.7 carries this and 6.18 does not: the bootloader leaves the
+           # DPU INTF timing engine running, and reprogramming it while live
+           # makes the DSI input FIFO overflow/underflow, so the panel never
+           # latches the first frame.
+           "patches/0007-dpu-intf-stale-stop.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
