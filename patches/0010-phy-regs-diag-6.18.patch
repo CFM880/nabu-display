@@ -1,0 +1,16 @@
+--- a/drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c
++++ b/drivers/gpu/drm/msm/dsi/phy/dsi_phy_7nm.c
+@@ -1180,6 +1180,13 @@
+ 
+ 	DBG("DSI%d PHY enabled", phy->id);
+ 
++	pr_info("DSI%d phy: cmn_ctrl0=0x%x lane_ctrl0=0x%x lane_ctrl1=0x%x muxes=0x%x pll_cntrl=0x%x\n",
++		phy->id, readl(base + REG_DSI_7nm_PHY_CMN_CTRL_0),
++		readl(base + REG_DSI_7nm_PHY_CMN_LANE_CTRL0),
++		readl(base + REG_DSI_7nm_PHY_CMN_LANE_CTRL1),
++		readl(phy->pll_base + REG_DSI_7nm_PHY_PLL_SYSTEM_MUXES),
++		readl(base + REG_DSI_7nm_PHY_CMN_PLL_CNTRL));
++
+ 	return 0;
+ }
+ 

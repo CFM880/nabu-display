@@ -30,7 +30,8 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            # latches the first frame.
            "patches/0007-dpu-intf-stale-stop.patch",
            "patches/0008-dpu-kickoff-diag.patch",
-           "patches/0009-dsi-tpg-diag.patch"]
+           "patches/0009-dsi-tpg-diag.patch",
+           "patches/0010-phy-regs-diag.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
