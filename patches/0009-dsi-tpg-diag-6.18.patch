@@ -1,0 +1,36 @@
+--- a/drivers/gpu/drm/msm/dsi/dsi_manager.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+@@ -34,6 +34,20 @@
+ #define IS_BONDED_DSI()		(msm_dsim_glb.is_bonded_dsi)
+ #define IS_SYNC_NEEDED()	(msm_dsim_glb.is_sync_needed)
+ #define IS_MASTER_DSI_LINK(id)	(msm_dsim_glb.master_dsi_link_id == id)
++
++/*
++ * nabu diagnostic: drive the panel from the DSI test pattern generator so a
++ * black screen can be split into "the link works, the DPU feeds nothing" and
++ * "the link itself is broken".  Default on; "nabu_tpg=0" on the kernel command
++ * line turns it off again without a rebuild.
++ */
++static bool nabu_tpg = true;
++static int __init nabu_tpg_setup(char *str)
++{
++	nabu_tpg = str && str[0] != '0';
++	return 1;
++}
++early_param("nabu_tpg", nabu_tpg_setup);
+ 
+ static inline struct msm_dsi *dsi_mgr_get_dsi(int id)
+ {
+@@ -307,6 +321,12 @@
+ 			msm_dsi_host_enable(msm_dsi1->host);
+ 	}
+ 
++	if (nabu_tpg) {
++		msm_dsi_host_test_pattern_en(host);
++		if (is_bonded_dsi && msm_dsi1)
++			msm_dsi_host_test_pattern_en(msm_dsi1->host);
++	}
++
+ 	/* Tell the touch driver only once the pipeline is really up. */
+ 	mi_drm_notifier_call_chain(MI_DRM_EVENT_BLANK, &notifier_data);
+ }
