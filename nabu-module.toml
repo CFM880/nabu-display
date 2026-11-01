@@ -35,7 +35,8 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            # pmOS runs 6.18.0 on this tablet with a working panel; 6.18.59
            # added byte-clock rounding backports that only 6G v2.9 hosts need.
            # Revert them to test whether they are what kills the HS video path.
-           "patches/0011-dsi-byteclk-revert.patch"]
+           "patches/0011-dsi-byteclk-revert.patch",
+           "patches/0012-rates-diag.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
