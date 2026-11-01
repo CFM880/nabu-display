@@ -38,7 +38,13 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            "patches/0011-dsi-byteclk-revert.patch",
            "patches/0012-rates-diag.patch",
            "patches/0013-dsi-enable-in-pre_enable.patch",
-           "patches/0015-dsi-late-sample.patch"]
+           "patches/0015-dsi-late-sample.patch",
+           # 6.18.59 reverted "drm/atomic-helper: Re-order bridge chain
+           # pre-enable and post-disable" (c1ef9a6cabb3), which moves
+           # crtc_enable() ahead of the bridge pre_enable().  pmOS' working
+           # 6.18.0 has the reordered sequence: bridges (DSI + panel) power
+           # up first, then the CRTC/DPU starts.  Restore it.
+           "patches/0016-restore-bridge-order.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
