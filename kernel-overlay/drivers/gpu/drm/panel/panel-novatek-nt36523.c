@@ -994,6 +994,7 @@ static void nt36523_reset(struct panel_info *pinfo)
 
 static int nt36523_prepare(struct drm_panel *panel)
 {
+	pr_info("nabu-panel: prepare\n");
 	struct panel_info *pinfo = to_panel_info(panel);
 	int ret;
 
@@ -1037,6 +1038,7 @@ static int nt36523_prepare(struct drm_panel *panel)
 
 static int nt36523_disable(struct drm_panel *panel)
 {
+	pr_info("nabu-panel: disable\n");
 	struct panel_info *pinfo = to_panel_info(panel);
 	int i;
 
@@ -1059,6 +1061,7 @@ static int nt36523_disable(struct drm_panel *panel)
 
 static int nt36523_unprepare(struct drm_panel *panel)
 {
+	pr_info("nabu-panel: unprepare\n");
 	struct panel_info *pinfo = to_panel_info(panel);
 
 	gpiod_set_value_cansleep(pinfo->reset_gpio, 1);
