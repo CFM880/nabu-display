@@ -38,7 +38,8 @@ patches = ["patches/0001-drm-msm-wb2-formats.patch",
            "patches/0011-dsi-byteclk-revert.patch",
            "patches/0012-rates-diag.patch",
            "patches/0013-dsi-enable-in-pre_enable.patch",
-           "patches/0014-dsi-enable-once.patch"]
+           "patches/0014-dsi-enable-once.patch",
+           "patches/0015-dsi-late-sample.patch"]
 config  = ["config/nabu-display.config"]
 
 # Display support is built into the kernel (CONFIG_DRM_MSM=y and
