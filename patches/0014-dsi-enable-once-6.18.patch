@@ -1,0 +1,24 @@
+--- a/drivers/gpu/drm/msm/dsi/dsi_manager.c
++++ b/drivers/gpu/drm/msm/dsi/dsi_manager.c
+@@ -306,20 +306,7 @@
+ 	enum drm_notifier_data notifier_data = MI_DRM_BLANK_UNBLANK;
+ 	int ret;
+ 
+-	/*
+-	 * nabu: the panel bridge is enabled before this callback, so the DSI
+-	 * host is started here rather than in pre_enable() (same ordering as
+-	 * the 7.2 port).  Starting it earlier leaves the panel receiving its
+-	 * init sequence with no video stream, and the first modeset fails to
+-	 * latch (black screen).
+-	 */
+-	if (!(is_bonded_dsi && !IS_MASTER_DSI_LINK(id))) {
+-		ret = msm_dsi_host_enable(host);
+-		if (ret)
+-			pr_err("host %d enable failed %d\n", id, ret);
+-		if (is_bonded_dsi && msm_dsi1)
+-			msm_dsi_host_enable(msm_dsi1->host);
+-	}
++	/* the DSI host is started from pre_enable(), as in 6.14 and pmOS 6.18 */
+ 
+ 	if (nabu_tpg) {
+ 		msm_dsi_host_test_pattern_en(host);
